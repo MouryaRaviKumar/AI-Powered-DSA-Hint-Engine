@@ -58,7 +58,7 @@ dsahintengine/
 │   └── requirements.txt     # Reference dependencies
 │
 ├── setup_checklist.md       # Environment preparation checklist and troubleshooting matrix
-└── student_notes.md         # Quick reference cheat sheet detailing the 5 core builder concepts
+└── start-project.ps1        # Script to run the project
 ```
 
 ---
