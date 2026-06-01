@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>DSA Hint Engine</title>
+  <meta name="description" content="A local, progressive DSA hint engine. Get Socratic guidance without spoilers. Powered by llama3.2:3b." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Tokens ─────────────────────────────── */
+    :root {
+      color-scheme: dark;
+      --bg:        #090b0d;
+      --surface:   #0e1215;
+      --inset:     #131920;
+      --line:      rgba(255,255,255,0.07);
+      --line-hi:   rgba(200,255,116,0.35);
+      --t1:        #dde4ec;
+      --t2:        #566170;
+      --t3:        #2e3740;
+      --accent:    #c8ff74;
+      --accent-bg: rgba(200,255,116,0.07);
+      --danger:    #ff6070;
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Inter', system-ui, sans-serif;
+      --r:         6px;
+      --ease:      cubic-bezier(.4,0,.2,1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      font-family: var(--sans);
+      font-size: 14px;
+      color-scheme: dark;
+      height: 100%;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--t1);
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ─── Glyph Canvas ───────────────────────── */
+    #gc {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ─── App Shell ──────────────────────────── */
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: 42px 1fr;
+      height: 100dvh;
+    }
+
+    /* ─── Topbar ─────────────────────────────── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(9,11,13,.9);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    .wordmark {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--t1);
+      text-decoration: none;
+    }
+
+    .wordmark span { color: var(--accent); }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--t2);
+    }
+
+    .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: breathe 3s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%,100% { opacity: 1; }
+      50%      { opacity: .3; }
+    }
+
+    /* ─── Main Grid ──────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ─── Column shared ──────────────────────── */
+    .col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .col-left  { border-right: 1px solid var(--line); }
+
+    /* ─── Section labels ─────────────────────── */
+    .sec-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .sec-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .9px;
+      text-transform: uppercase;
+      color: var(--t3);
+    }
+
+    .sec-label-right {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--t3);
+    }
+
+    /* ─── Problem Statement ──────────────────── */
+    .problem-wrap {
+      flex: 1 1 0;
+      min-height: 0;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #problem-desc {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      padding: 14px 18px;
+      background: var(--surface);
+      border: none;
+      border-radius: 0;
+      color: var(--t1);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.65;
+      resize: none;
+      outline: none;
+    }
+
+    #problem-desc::placeholder { color: var(--t3); }
+
+    /* ─── Code Editor ────────────────────────── */
+    .editor-wrap {
+      flex: 1 1 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #code {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      padding: 16px 18px;
+      background: var(--bg);
+      border: none;
+      border-radius: 0;
+      color: var(--t1);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.8;
+      resize: none;
+      outline: none;
+      tab-size: 2;
+    }
+
+    #code::placeholder { color: var(--t3); }
+
+    /* ─── Right Column ───────────────────────── */
+    /* Controls bar */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    select {
+      background: var(--inset);
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      color: var(--t1);
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 6px 10px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 120ms var(--ease);
+    }
+
+    select:focus { border-color: var(--line-hi); }
+    select option { background: var(--inset); }
+
+    .btn-analyse {
+      margin-left: auto;
+      padding: 7px 18px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--r);
+      color: #090b0d;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter 120ms var(--ease), box-shadow 120ms var(--ease);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    
+    .btn-analyse:hover:not(:disabled) {
+      filter: brightness(1.08);
+      box-shadow: 0 0 18px rgba(200,255,116,.22);
+    }
+
+    .btn-analyse:disabled { opacity: .4; cursor: not-allowed; filter: none; box-shadow: none; }
+
+    .spin {
+      width: 12px; height: 12px;
+      border: 1.5px solid rgba(9,11,13,.3);
+      border-top-color: #090b0d;
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+      display: none;
+    }
+
+    .loading .spin    { display: block; }
+    .loading .btn-txt { display: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    /* ─── Hint Tier Pills ────────────────────── */
+    .tier-bar {
+      display: flex;
+      gap: 6px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+      background: var(--surface);
+    }
+
+    .tier-pill {
+      flex: 1;
+      padding: 9px 6px;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      background: transparent;
+      color: var(--t2);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      line-height: 1.4;
+      transition: all 120ms var(--ease);
+    }
+
+    .tier-pill:hover { border-color: rgba(200,255,116,.2); color: var(--t1); }
+
+    .tier-pill.active {
+      border-color: var(--line-hi);
+      background: var(--accent-bg);
+      color: var(--t1);
+    }
+
+    .tier-pill .pill-name {
+      display: block;
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 2px;
+    }
+
+    .tier-pill .pill-sub {
+      display: block;
+      font-size: 10px;
+      color: var(--t2);
+      font-style: italic;
+    }
+
+    .tier-pill.active .pill-sub { color: var(--t2); }
+
+    /* ─── Hint Output ────────────────────────── */
+    .hint-out {
+      flex: 1;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line) transparent;
+    }
+
+    @supports not (scrollbar-color: auto) {
+      .hint-out::-webkit-scrollbar       { width: 4px; }
+      .hint-out::-webkit-scrollbar-thumb { background: var(--line); }
+    }
+
+    /* Idle */
+    .idle {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .idle-code {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--t3);
+      line-height: 1.9;
+      margin-bottom: 8px;
+    }
+
+    .idle-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--t1);
+    }
+
+    .idle-sub {
+      font-size: 12px;
+      color: var(--t2);
+      line-height: 1.6;
+      max-width: 280px;
+    }
+
+    /* Rendered hint */
+    .hint-body {
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      animation: fadein .22s var(--ease) both;
+    }
+
+    @keyframes fadein {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .hint-eyebrow {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .9px;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .hint-main {
+      font-size: 17px;
+      font-weight: 400;
+      color: var(--t1);
+      line-height: 1.75;
+    }
+
+    .reasoning-block {
+      padding: 12px 14px;
+      border-left: 2px solid var(--line);
+      background: var(--surface);
+      border-radius: 0 var(--r) var(--r) 0;
+    }
+
+    .reasoning-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .7px;
+      text-transform: uppercase;
+      color: var(--t3);
+      margin-bottom: 5px;
+    }
+
+    .reasoning-text {
+      font-size: 12px;
+      color: var(--t2);
+      line-height: 1.65;
+      font-style: italic;
+    }
+
+    .concept-block {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      background: var(--surface);
+    }
+
+    .block-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .7px;
+      text-transform: uppercase;
+      color: var(--t3);
+      margin-bottom: 8px;
+    }
+
+    .block-text {
+      font-size: 13px;
+      color: var(--t1);
+      line-height: 1.7;
+    }
+
+    .pseudo-list {
+      list-style: none;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      overflow: hidden;
+    }
+
+    .pseudo-item {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .pseudo-item:last-child { border-bottom: none; }
+
+    .pseudo-item:hover { background: var(--surface); }
+
+    .line-n {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 11px 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--t3);
+      border-right: 1px solid var(--line);
+      user-select: none;
+    }
+
+    .line-t {
+      padding: 11px 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--t1);
+      line-height: 1.6;
+    }
+
+    /* Error */
+    .err-bar {
+      margin: 0 18px 12px;
+      padding: 9px 13px;
+      background: rgba(255,96,112,.07);
+      border: 1px solid rgba(255,96,112,.22);
+      border-radius: var(--r);
+      font-size: 12px;
+      color: var(--danger);
+      line-height: 1.5;
+      display: none;
+    }
+
+    .err-bar.show { display: block; }
+
+    /* ─── Session / Chat ─────────────────────── */
+    .session-divider {
+      border: none;
+      border-top: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+
+    .session-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 18px;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .session-toggle {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .9px;
+      text-transform: uppercase;
+      color: var(--t3);
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0;
+      font-family: var(--sans);
+      transition: color 120ms;
+    }
+
+    .session-toggle:hover { color: var(--t2); }
+
+    .toggle-arrow {
+      transition: transform 200ms var(--ease);
+    }
+
+    .session-toggle[aria-expanded="true"] .toggle-arrow {
+      transform: rotate(180deg);
+    }
+
+    .chat-area {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 260ms var(--ease);
+    }
+
+    .chat-area.open { max-height: 240px; }
+
+    .chat-msgs {
+      height: 180px;
+      overflow-y: auto;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line) transparent;
+    }
+
+    @supports not (scrollbar-color: auto) {
+      .chat-msgs::-webkit-scrollbar       { width: 4px; }
+      .chat-msgs::-webkit-scrollbar-thumb { background: var(--line); }
+    }
+
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      animation: fadein .18s var(--ease) both;
+    }
+
+    .msg-who {
+      font-size: 10px;
+      font-family: var(--mono);
+      color: var(--t3);
+    }
+
+    .msg.user .msg-who { text-align: right; }
+
+    .msg-bubble {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--t1);
+      max-width: 90%;
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+
+    .msg.user  .msg-bubble {
+      align-self: flex-end;
+      background: var(--accent-bg);
+      border: 1px solid var(--line-hi);
+      border-radius: 8px 8px 2px 8px;
+    }
+
+    .msg.assistant .msg-bubble {
+      align-self: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 2px 8px 8px 8px;
+    }
+
+    .typing-bubble {
+      align-self: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 2px 8px 8px 8px;
+      padding: 8px 14px;
+      display: flex;
+      gap: 4px;
+    }
+
+    .typing-bubble span {
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--t3);
+      animation: dotpulse 1.2s ease-in-out infinite;
+    }
+
+    .typing-bubble span:nth-child(2) { animation-delay: .2s; }
+    .typing-bubble span:nth-child(3) { animation-delay: .4s; }
+
+    @keyframes dotpulse {
+      0%,80%,100% { transform: scale(.75); opacity: .4; }
+      40%          { transform: scale(1.2); opacity: 1; }
+    }
+
+    .chat-input-row {
+      display: flex;
+      gap: 8px;
+      padding: 8px 18px 10px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .chat-input-row input {
+      flex: 1;
+      background: var(--inset);
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      color: var(--t1);
+      font-family: var(--sans);
+      font-size: 12px;
+      padding: 7px 11px;
+      outline: none;
+      transition: border-color 120ms;
+    }
+
+    .chat-input-row input:focus { border-color: var(--line-hi); }
+    .chat-input-row input::placeholder { color: var(--t3); }
+
+    .btn-send {
+      padding: 7px 14px;
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      color: var(--t2);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 120ms var(--ease);
+      white-space: nowrap;
+    }
+
+    .btn-send:hover:not(:disabled) { border-color: var(--line-hi); color: var(--accent); }
+    .btn-send:disabled             { opacity: .35; cursor: not-allowed; }
+
+    /* ─── Responsive ─────────────────────────── */
+    @media (max-width: 860px) {
+      body   { overflow: auto; }
+      .app   { height: auto; }
+      .grid  { grid-template-columns: 1fr; height: auto; }
+      .col   { height: auto; }
+      #code  { min-height: 260px; }
+      .hint-out { max-height: 500px; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="gc" aria-hidden="true"></canvas>
+
+<div class="app">
+
+  <!-- Topbar -->
+  <nav role="banner">
+    <a class="wordmark" href="#" aria-label="breadcrumbs.ai">DSA Hint Engine<span>.ai</span></a>
+    <div class="status" role="status" aria-label="Model status">
+      <div class="dot" aria-hidden="true"></div>
+      <span>llama3.2:3b &middot; local</span>
+    </div>
+  </nav>
+
+  <!-- Grid -->
+  <div class="grid">
+
+    <!-- ── Left: Problem + Code ── -->
+    <div class="col col-left">
+
+      <!-- Problem Statement -->
+      <div class="sec-head">
+        <span class="sec-label">Problem statement</span>
+      </div>
+      <div class="problem-wrap">
+        <textarea
+          id="problem-desc"
+          placeholder="Paste the problem statement here. The engine uses this to understand what you are solving."
+          aria-label="Problem statement"
+        ></textarea>
+      </div>
+
+      <!-- Code Editor -->
+      <div class="editor-wrap">
+        <div class="sec-head">
+          <span class="sec-label">Your code</span>
+          <span class="sec-label-right" id="lang-file">solution.py</span>
+        </div>
+        <textarea
+          id="code"
+          spellcheck="false"
+          autocorrect="off"
+          autocapitalize="off"
+          placeholder="def solution():&#10;    # paste your current attempt here&#10;    pass"
+          aria-label="Your code"
+        ></textarea>
+      </div>
+
+    </div>
+
+    <!-- ── Right: Hint Engine ── -->
+    <div class="col col-right">
+
+      <!-- Controls row -->
+      <div class="controls">
+        <select id="language" aria-label="Programming language">
+          <option value="python">Python</option>
+          <option value="javascript">JavaScript</option>
+          <option value="java">Java</option>
+          <option value="cpp">C++</option>
+          <option value="typescript">TypeScript</option>
+          <option value="go">Go</option>
+          <option value="rust">Rust</option>
+        </select>
+
+        <select id="difficulty" aria-label="Problem difficulty">
+          <option value="Easy">Easy</option>
+          <option value="Medium" selected>Medium</option>
+          <option value="Hard">Hard</option>
+        </select>
+
+        <button class="btn-analyse" id="get-hint-btn" aria-label="Get hint from AI">
+          <div class="spin" aria-hidden="true"></div>
+          <span class="btn-txt">Get hint &rarr;</span>
+        </button>
+      </div>
+
+      <!-- Tier selector -->
+      <div class="tier-bar" role="radiogroup" aria-label="Hint depth">
+        <button class="tier-pill active" data-tier="1" role="radio" aria-checked="true">
+          <span class="pill-name">the slight hint</span>
+          <span class="pill-sub">Socratic question only</span>
+        </button>
+        <button class="tier-pill" data-tier="2" role="radio" aria-checked="false">
+          <span class="pill-name">the approach hint</span>
+          <span class="pill-sub">Names the algorithm</span>
+        </button>
+        <button class="tier-pill" data-tier="3" role="radio" aria-checked="false">
+          <span class="pill-name">the pseudocode hint</span>
+          <span class="pill-sub">Step-by-step, no code</span>
+        </button>
+      </div>
+
+      <!-- Hint output -->
+      <div class="hint-out" id="hint-out" role="region" aria-label="Hint output" aria-live="polite">
+        <div class="idle" id="idle">
+          <pre class="idle-code" aria-hidden="true">O(n)    [i+1]    {}
+  for i in range(n):
+    seen[num] = i
+O(log n)    stack    ptr</pre>
+          <p class="idle-title">No hint yet</p>
+          <p class="idle-sub">Pick a hint depth above, then click "Get hint".</p>
+        </div>
+      </div>
+
+      <div class="err-bar" id="err-bar" role="alert" aria-live="assertive"></div>
+
+      <!-- Session Chat (collapsible) -->
+      <hr class="session-divider" />
+
+      <div class="session-head">
+        <button class="session-toggle" id="session-toggle" aria-expanded="false" aria-controls="chat-area">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M1 4 Q1 1 5 1 Q9 1 9 4 Q9 7.5 5 8.5 L4 9.5 L4 8.5 Q1 7.5 1 4Z"/>
+          </svg>
+          <span>Debug session</span>
+          <svg class="toggle-arrow" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+            <path d="M1.5 2.5 L4 5.5 L6.5 2.5"/>
+          </svg>
+        </button>
+        <span style="font-size:10px;font-family:var(--mono);color:var(--t3)" id="sess-id-label"></span>
+      </div>
+
+      <div class="chat-area" id="chat-area" role="region" aria-label="Debug session chat">
+        <div class="chat-msgs" id="chat-msgs" aria-live="polite">
+          <!-- messages populated by JS -->
+        </div>
+      </div>
+
+      <div class="chat-input-row">
+        <input
+          type="text"
+          id="sess-in"
+          placeholder="Ask a follow-up question..."
+          aria-label="Follow-up question"
+          autocomplete="off"
+        />
+        <button class="btn-send" id="sess-send" aria-label="Send message">send</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+/* ───── Glyph Field ──────────────────────────────────────── */
+(function () {
+  const canvas = document.getElementById('gc');
+  const ctx    = canvas.getContext('2d');
+
+  const POOL = [
+    'O(1)','O(n)','O(n\xb2)','O(log n)','O(n log n)',
+    '[i]','[i+1]','[0]','{}','[]','->',
+    'for','while','if','null','true','false','return',
+    'node','ptr','stack','queue','arr','dp[i]',
+    '0xff','0b101','1010','0001','n-1',
+    '\u2211','\u221an','\u2264','\u2265','\u221e',
+    '//','%','<<','>>',
+    'seen','left','right','mid','n-k',
+  ];
+
+  let W, H, dpr, items;
+  const mouse = { x: -9999, y: -9999 };
+
+  function rand(a, b) { return Math.random() * (b - a) + a; }
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W   = window.innerWidth;
+    H   = window.innerHeight;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+  }
+
+  function spawn() {
+    items = Array.from({ length: 46 }, () => {
+      const z     = rand(.2, 1);
+      const speed = rand(.05, .18);
+      const ang   = rand(0, Math.PI * 2);
+      return {
+        t: POOL[Math.floor(Math.random() * POOL.length)],
+        x: rand(0, W), y: rand(0, H),
+        vx: Math.cos(ang) * speed * z,
+        vy: Math.sin(ang) * speed * z,
+        z,
+        a: rand(.04, .11) * z,
+        sz: 9 + z * 7,
+      };
+    });
+  }
+
+  function frame() {
+    ctx.clearRect(0, 0, W, H);
+    for (const g of items) {
+      const dx = g.x - mouse.x, dy = g.y - mouse.y;
+      const d  = Math.hypot(dx, dy);
+      const R  = 110 * g.z;
+      if (d < R && d > 0) {
+        const f = (R - d) / R;
+        g.vx += (dx / d) * f * .035;
+        g.vy += (dy / d) * f * .035;
+      }
+      g.vx *= .994; g.vy *= .994;
+      if (Math.hypot(g.vx, g.vy) < .025) {
+        const a = Math.random() * Math.PI * 2;
+        g.vx += Math.cos(a) * .025;
+        g.vy += Math.sin(a) * .025;
+      }
+      g.x += g.vx; g.y += g.vy;
+      if (g.x < -80) g.x = W + 80; if (g.x > W + 80) g.x = -80;
+      if (g.y < -30) g.y = H + 30; if (g.y > H + 30) g.y = -30;
+
+      ctx.font = `${g.z > .65 ? 500 : 400} ${g.sz}px 'JetBrains Mono',monospace`;
+      ctx.fillStyle = `rgba(200,255,116,${g.a})`;
+      ctx.fillText(g.t, g.x, g.y);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', () => { resize(); spawn(); });
+  window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('touchmove', e => {
+    mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY;
+  }, { passive: true });
+  window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
+
+  resize(); spawn(); frame();
+})();
+
+
+/* ───── App Logic ────────────────────────────────────────── */
+(function () {
+  const API = 'http://127.0.0.1:8000';
+  let tier = 1;
+  const sessId = 'sess_' + Math.random().toString(36).slice(2, 8);
+  document.getElementById('sess-id-label').textContent = sessId;
+
+  /* Language file name sync */
+  const langFiles = {
+    python:'solution.py', javascript:'solution.js', java:'Solution.java',
+    cpp:'solution.cpp', typescript:'solution.ts', go:'solution.go', rust:'solution.rs',
+  };
+  const langSel  = document.getElementById('language');
+  const langFile = document.getElementById('lang-file');
+  langSel.addEventListener('change', () => { langFile.textContent = langFiles[langSel.value]; });
+
+  /* Tier pills */
+  const pills = document.querySelectorAll('.tier-pill');
+  pills.forEach(p => {
+    p.addEventListener('click', () => {
+      pills.forEach(x => { x.classList.remove('active'); x.setAttribute('aria-checked','false'); });
+      p.classList.add('active'); p.setAttribute('aria-checked','true');
+      tier = +p.dataset.tier;
+    });
+  });
+
+  /* Helpers */
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  const errEl  = document.getElementById('err-bar');
+  function showErr(m) { errEl.textContent = m; errEl.classList.add('show'); }
+  function clearErr()  { errEl.classList.remove('show'); }
+
+  /* Render hint */
+  const hintOut = document.getElementById('hint-out');
+  const tierName = { 1:'the slight hint', 2:'the approach hint', 3:'the pseudocode hint' };
+
+  function renderHint(data) {
+    document.getElementById('idle')?.remove();
+    hintOut.querySelectorAll('.hint-body').forEach(e => e.remove());
+
+    const wrap = document.createElement('div');
+    wrap.className = 'hint-body';
+
+    /* Eyebrow */
+    const eye = document.createElement('div');
+    eye.className = 'hint-eyebrow';
+    eye.textContent = tierName[tier];
+    wrap.appendChild(eye);
+
+    /* Main hint */
+    const main = document.createElement('p');
+    main.className = 'hint-main';
+    main.textContent = data.hint;
+    wrap.appendChild(main);
+
+    /* Reasoning */
+    if (data.thought_process) {
+      const r = document.createElement('div');
+      r.className = 'reasoning-block';
+      r.innerHTML = `<div class="reasoning-label">Model reasoning</div>
+                     <p class="reasoning-text">${esc(data.thought_process)}</p>`;
+      wrap.appendChild(r);
+    }
+
+    /* Concept */
+    if (data.conceptual_explanation) {
+      const c = document.createElement('div');
+      c.className = 'concept-block';
+      c.innerHTML = `<div class="block-label">Concept</div>
+                     <p class="block-text">${esc(data.conceptual_explanation)}</p>`;
+      wrap.appendChild(c);
+    }
+
+    /* Pseudocode */
+    if (data.pseudocode_steps?.length) {
+      const head = document.createElement('div');
+      head.className = 'block-label';
+      head.textContent = 'Pseudocode';
+      wrap.appendChild(head);
+
+      const ol = document.createElement('ol');
+      ol.className = 'pseudo-list';
+      ol.setAttribute('aria-label', 'Pseudocode steps');
+
+      data.pseudocode_steps.forEach((s, i) => {
+        const li = document.createElement('li');
+        li.className = 'pseudo-item';
+        li.innerHTML = `<span class="line-n">${i+1}</span>
+                        <span class="line-t">${esc(s.replace(/^\d+\.\s*/,''))}</span>`;
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+    }
+
+    hintOut.appendChild(wrap);
+    hintOut.scrollTop = 0;
+  }
+
+  /* Analyse button */
+  const getBtn = document.getElementById('get-hint-btn');
+  getBtn.addEventListener('click', async () => {
+    const code    = document.getElementById('code').value.trim();
+    const problem = document.getElementById('problem-desc').value.trim();
+    clearErr();
+    if (!code || !problem) { showErr('Add your problem statement and code before getting a hint.'); return; }
+    getBtn.disabled = true; getBtn.classList.add('loading');
+    try {
+      const res = await fetch(`${API}/hint/${tier}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          problem_description:  problem,
+          programming_language: langSel.value,
+          difficulty:           document.getElementById('difficulty').value,
+        }),
+      });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+      renderHint(await res.json());
+    } catch (e) {
+      showErr(e.message.includes('fetch') ? 'Cannot reach server at http://127.0.0.1:8000' : e.message);
+    } finally {
+      getBtn.disabled = false; getBtn.classList.remove('loading');
+    }
+  });
+
+  /* Session toggle */
+  const toggle  = document.getElementById('session-toggle');
+  const chatArea = document.getElementById('chat-area');
+  toggle.addEventListener('click', () => {
+    const open = chatArea.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open);
+  });
+
+  /* Chat */
+  const msgsEl  = document.getElementById('chat-msgs');
+  const sendBtn = document.getElementById('sess-send');
+  const sessIn  = document.getElementById('sess-in');
+
+  function addMsg(role, text, animate = true) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + role;
+    if (!animate) d.style.animation = 'none';
+    d.innerHTML = `<span class="msg-who">${role === 'user' ? 'you' : 'assistant'}</span>
+                   <div class="msg-bubble">${esc(text)}</div>`;
+    msgsEl.appendChild(d);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+
+  function addTyping() {
+    const d = document.createElement('div');
+    d.className = 'msg assistant'; d.id = '__t';
+    d.innerHTML = `<span class="msg-who">assistant</span>
+      <div class="typing-bubble"><span></span><span></span><span></span></div>`;
+    msgsEl.appendChild(d);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return d;
+  }
+
+  addMsg('assistant', 'Ask me anything about your approach — I will guide you without giving away the answer.', false);
+
+  async function sendMsg() {
+    const t = sessIn.value.trim();
+    if (!t) return;
+    sessIn.value = '';
+    addMsg('user', t);
+    sendBtn.disabled = sessIn.disabled = true;
+    /* Open panel if closed */
+    if (!chatArea.classList.contains('open')) { chatArea.classList.add('open'); toggle.setAttribute('aria-expanded','true'); }
+    const typing = addTyping();
+    try {
+      const res = await fetch(`${API}/session?session_id=${encodeURIComponent(sessId)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'user', content: t }),
+      });
+      typing.remove();
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+      const data = await res.json();
+      const last = [...(data.history||[])].reverse().find(m => m.role === 'assistant');
+      if (last) addMsg('assistant', last.content);
+    } catch (e) {
+      typing.remove();
+      addMsg('assistant', 'Error: ' + (e.message.includes('fetch') ? 'Server unreachable' : e.message));
+    } finally {
+      sendBtn.disabled = sessIn.disabled = false; sessIn.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMsg);
+  sessIn.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
+})();
+</script>
+</body>
+</html>
