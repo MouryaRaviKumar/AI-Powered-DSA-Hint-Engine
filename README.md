@@ -1,11 +1,11 @@
-# DSA Hint Engine
+# AI-Powered DSA Hint Engine
 ---
 
-![DSA Hint Engine](images/Home%20Page.png)
+![AI-Powered DSA Hint Engine](images/Home%20Page.png)
 
 ## Architectural Blueprint
 
-The **DSA Hint Engine** addresses a classic education failure: showing students the solution kills the learning process, while vague hints offer zero help. 
+The **AI-Powered DSA Hint Engine** addresses a classic education failure: showing students the solution kills the learning process, while vague hints offer zero help. 
 
 By leveraging local LLM inference, prompt chaining, and stateful session memory, this API delivers progressive hints tailored to the student's unique bottleneck:
 
